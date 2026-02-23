@@ -5,9 +5,22 @@ import pandas as pd
 import argparse
 
 
+FEATURE_SCHEMA = {
+    "id":        {"index": 0, "type": "meta"}, 
+    "potential": {"index": 1, "type": "discrete"},
+    "area":      {"index": 2, "type": "continuous"},
+    "volume":    {"index": 3, "type": "continuous"},
+    "atom":      {"index": 4, "type": "discrete"}, #NOT HANDLED
+    "x":         {"index": 5, "type": "continuous"},
+    "y":         {"index": 6, "type": "continuous"},
+    "z":         {"index": 7, "type": "continuous"},
+    "izquierda": {"index": 8, "type": "meta"}}
 
-def obtain_nodes_all_attributes(dir, features_to_keep = [1,2,3,-1]):
-    #add docstring
+
+def obtain_nodes_all_attributes(dir, features_to_keep=("potential","area","volume","izquierda")):
+    """Stores for all the nodes the values found in features to keep, 
+    the value -1 should always be store to handle the canonical arrangement
+    the algorithm utilizes"""
 
     node_attributes = []
     edges = []
@@ -31,16 +44,19 @@ def obtain_nodes_all_attributes(dir, features_to_keep = [1,2,3,-1]):
                     lines[num_line + 2].split()[1]])
 
     node_attributes = np.array(node_attributes).reshape(-1, 9)
-    edges = np.array(edges, dtype= np.int32).reshape(-1, 2)
+    edges = np.array(edges, dtype=np.int32).reshape(-1, 2)
 
-    selected = node_attributes[:, features_to_keep]
-    selected = np.asarray(selected, dtype=np.float64)
-    return selected, edges
+    indices = [FEATURE_SCHEMA[f]["index"] for f in features_to_keep]
+    types   = [FEATURE_SCHEMA[f]["type"]  for f in features_to_keep]
 
+    selected = node_attributes[:, indices].astype(np.float64)
+
+    return selected, edges, types
 
 
 def build_children(edges, features):
-    #add docstring
+
+    """Generates a list indicating the ordered children of each node"""
 
     n = len(features)
     children = [[] for _ in range(n)]
@@ -51,16 +67,16 @@ def build_children(edges, features):
     #order children by attribute on last column
     for p in range(n):
         if len(children[p]) > 0:
-            hijos = np.array(children[p])
-            pesos = features[hijos][:, -1]
-            idx = np.argsort(pesos)
-            children[p] = list(hijos[idx])
+            children_np = np.array(children[p])
+            weights = features[children_np][:, -1]
+            idx = np.argsort(weights)
+            children[p] = list(children_np[idx])
 
     return children
 
 
 def find_root(edges, n):
-    #add docstring
+    """Finds the root of the tree"""
 
     has_parent = np.zeros(n, dtype=bool)
     for c, _ in edges:
@@ -74,7 +90,8 @@ def find_root(edges, n):
 
 
 def postorder_traversal(root, children):
-    #add docstring, check original paper, other implementations might neer Euler tour
+    """Postorder traversal required for the greedy implementation of TED, based on the work
+    of Kaizhong Zhang & Dennis Shasha https://doi.org/10.1137/0218082 """
 
     order = []
 
@@ -109,7 +126,8 @@ def compute_l_values(postorder, children):
 
 
 def compute_keyroots(l):
-    #add docstring
+    """Compute keyroots of the graphs"""
+
     seen = set()
     keyroots = []
 
@@ -123,12 +141,13 @@ def compute_keyroots(l):
 
 
 
-def zhang_shasha_ted(edges1, features1, edges2, features2):
+def zhang_shasha_ted(edges1, features1, types1, edges2, features2, types2):
+    """Zhang & Shasha tree edit distance calculation weighted by the type of feature"""
 
     W_DISC = 1 #change if appropiate
     W_CONT = 1
 
-    def normalize_joint(X, Y): #normalization is done among pairs, is it ok?
+    def normalize_joint(X, Y): #normalization is done among pairs
 
         Z = np.vstack([X, Y]).astype(float)
         mn = Z.min(axis=0)
@@ -137,10 +156,28 @@ def zhang_shasha_ted(edges1, features1, edges2, features2):
         den[den == 0] = 1.0
         Z = (Z - mn) / den
         return Z[:len(X)], Z[len(X):]
+    
+    disc_idx = [i for i,t in enumerate(types1) if t == "discrete"]
+    cont_idx = [i for i,t in enumerate(types1) if t == "continuous"]
+    meta_idx = [i for i,t in enumerate(types1) if t == "meta"]
 
-    cont1, cont2 = normalize_joint(features1[:, 1:], features2[:, 1:])
-    features1 = np.hstack([features1[:, [0]], cont1])
-    features2 = np.hstack([features2[:, [0]], cont2])
+    f1_disc = features1[:, disc_idx] if disc_idx else np.empty((len(features1),0))
+    f2_disc = features2[:, disc_idx] if disc_idx else np.empty((len(features2),0))
+
+    f1_cont = features1[:, cont_idx] if cont_idx else np.empty((len(features1),0))
+    f2_cont = features2[:, cont_idx] if cont_idx else np.empty((len(features2),0))
+
+    f1_meta = features1[:, meta_idx] if meta_idx else np.empty((len(features1),0))
+    f2_meta = features2[:, meta_idx] if meta_idx else np.empty((len(features2),0))
+
+    if f1_cont.shape[1] > 0:
+        f1_cont, f2_cont = normalize_joint(f1_cont, f2_cont)
+
+    features1 = np.hstack([f1_disc, f1_cont, f1_meta])
+    features2 = np.hstack([f2_disc, f2_cont, f2_meta])
+
+    n_disc = f1_disc.shape[1]
+    n_cont = f1_cont.shape[1]
 
     #BUild trees
     children1 = build_children(features=features1, edges=edges1)
@@ -162,19 +199,29 @@ def zhang_shasha_ted(edges1, features1, edges2, features2):
     keyroots2 = compute_keyroots(l=l2)
 
     #cost functions that discriminate discrete and continuous variables
-    def del_cost(i): 
+    def del_cost(i):
         u = post1[i]
-        return W_DISC * abs(features1[u][0]) + W_CONT * np.linalg.norm(features1[u][1:-1]) 
+        disc = np.sum(np.abs(features1[u][:n_disc])) if n_disc else 0
+        cont = np.linalg.norm(features1[u][n_disc:n_disc+n_cont]) if n_cont else 0
+        return W_DISC * disc + W_CONT * cont
+
     def ins_cost(j):
         v = post2[j]
-        return W_DISC * abs(features2[v][0]) + W_CONT * np.linalg.norm(features2[v][1:-1])
+        disc = np.sum(np.abs(features2[v][:n_disc])) if n_disc else 0
+        cont = np.linalg.norm(features2[v][n_disc:n_disc+n_cont]) if n_cont else 0
+        return W_DISC * disc + W_CONT * cont
 
     def rep_cost(i, j):
         u = post1[i]
         v = post2[j]
-        return (W_DISC* abs(features1[u][0] - features2[v][0]) + 
-                W_CONT * np.linalg.norm(features1[u][1:-1] - features2[v][1:-1]))
-    
+
+        disc = np.sum(np.abs(features1[u][:n_disc] -
+                     features2[v][:n_disc])) if n_disc else 0
+
+        cont = np.linalg.norm(features1[u][n_disc:n_disc+n_cont] -
+                              features2[v][n_disc:n_disc+n_cont]) if n_cont else 0
+
+        return W_DISC * disc + W_CONT * cont
 
     treedist = np.zeros((n1, n2))
 
@@ -235,17 +282,18 @@ if __name__ == "__main__":
     n = len(dir_list)
     dm = np.full((n, n), np.nan)
 
-    labels = [archivo[:-4] for archivo in dir_list]
+    labels = [file[:-4] for file in dir_list]
 
     for i, j in combinations_with_replacement(range(n), 2):
         file_i = os.path.join(dir, dir_list[i])
         file_j = os.path.join(dir, dir_list[j])
 
+        features_extract = ("potential","volume","izquierda") #CHANGE ACCORDINGLY
+        features_i, edges_i, types_i = obtain_nodes_all_attributes(file_i, features_extract)
+        features_j, edges_j, types_j = obtain_nodes_all_attributes(file_j, features_extract)
 
-        features_i, edges_i = obtain_nodes_all_attributes(file_i)
-        features_j, edges_j = obtain_nodes_all_attributes(file_j)
-
-        ted = zhang_shasha_ted(edges_i, features_i, edges_j, features_j)
+        ted = zhang_shasha_ted(edges1=edges_i, features1=features_i, types1=types_i,
+                               edges2=edges_j, features2=features_j, types2=types_j)
 
         print(f"ted({labels[i]}, {labels[j]}) = {ted}")
         dm[i, j] = round(ted, 5)
