@@ -1,8 +1,8 @@
-#Pytaris: Molecular Electrostatic Potential Isosurface Tree 
+# Pytaris: Molecular Electrostatic Potential Isosurface Tree 
 
 A Python package for generating tree representations from Molecular Electrostatic Potential (MESP) isosurfaces computed from Gaussian cube files. The package implements marching cubes algorithm to extract isosurfaces and constructs hierarchical trees based on isopotential connectivity.
 
-#Overview
+# Overview
 
 Pytaris processes Gaussian cube files containing MESP data to generate directed acyclic graphs (trees) representing the topological evolution of isosurfaces across different potential values. The algorithm:
 
@@ -18,7 +18,7 @@ Pytaris processes Gaussian cube files containing MESP data to generate directed 
 
 6.    Outputs the tree in GML format for visualization and further analysis
 
-#Features
+# Features
 
 *    Parallel processing of multiple isopotential values
 
@@ -34,15 +34,15 @@ Pytaris processes Gaussian cube files containing MESP data to generate directed 
 
 *    Tree collapsing functionality to identify critical nodes
 
-#Usage
-##Command Line
+# Usage
+## Command Line
 
 ```python
 
 python main.py <path_to_cube_file> [options]
 ```
 
-#Arguments
+# Arguments
 
 | Argument	 | Description |	Default |
 | --- | --- | ---|
@@ -55,7 +55,7 @@ python main.py <path_to_cube_file> [options]
 |--pos_step|	Step size for positive potential sweep |	-0.05
 |--visualize |	Visualize generated graphs |	False
 
-#Output Format
+# Output Format
 
 The generated GML files contain:
 Node Attributes
@@ -69,7 +69,7 @@ Node Attributes
 * xValue, yValue, zValue: Coordinates (centroid for negative potentials, first vertex for positive)
 * izquierda: Spatial ranking tag within potential group
 
-#Acknowledgments
+# Acknowledgments
 
 Based on marching cubes implementation adapted from alvin-yang68/Marching-Cubes and the table found on https://paulbourke.net/geometry/polygonise/
 
